@@ -1,0 +1,13 @@
+*.s9pk
+startos/*.js
+node_modules/
+.DS_Store
+.vscode/
+docker-images
+javascript
+ncc-cache
+# Release staging. release.sh writes the .s9pk, its SHA256SUMS and the detached
+# signature here; the published record is the GitHub release, not the repo.
+builds/
+# Local planning notes, kept out of the repo on purpose.
+internal_docs/

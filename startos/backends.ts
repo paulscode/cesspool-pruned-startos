@@ -1,0 +1,190 @@
+import {
+  rpcHostId as btcRpcHostId,
+  rpcPort as btcRpcPort,
+} from 'bitcoin-core-startos/startos/utils'
+import {
+  rpcHostId as b2bRpcHostId,
+  rpcPort as b2bRpcPort,
+} from 'knots-blake2b-startos/startos/utils'
+
+/**
+ * Where a backend's RPC lives inside its own container.
+ *
+ * Only RPC, unlike the same file in `electrs-pruned`, which also carries a
+ * whitelisted p2p endpoint. Cesspool never pulls blocks over p2p: it reads
+ * each one over RPC, with the coins it spends, so there is no second endpoint
+ * to resolve.
+ *
+ * This file is Mempool Pruned's `backends.ts`, kept the same on purpose: the
+ * two packages offer the same nodes for the same reasons, and a floor that is
+ * right for one is right for the other. Change them together.
+ */
+type Endpoints = {
+  rpcHostId: string
+  rpcPort: number
+}
+
+/**
+ * The health checks a backend must be passing before Cesspool should read it.
+ *
+ * Per backend rather than one list for all of them, because the ids are not
+ * shared. StartOS looks each id up in the dependency's own health results and
+ * treats a miss exactly like a failure: `dep.statusInfo.health[id]` is
+ * `undefined`, `undefined !== 'success'`, and the UI shows "Required health
+ * check not passing" for a check that does not exist. Nothing clears it, and the
+ * warning cannot even name the check, because there is no name to read. That
+ * cost `electrs-pruned` a release to learn; it is written down here so it does
+ * not cost this package one too.
+ *
+ * The official package and its two mainnet forks run a daemon `bitcoind` with a
+ * `sync-progress` check beside it. `knots-blake2b` is a separate lineage and
+ * runs a daemon `node` with a `chain` check, which answers a different question:
+ * both mainnet chains share magic bytes, port 8333 and every block up to 961631,
+ * so a node with no peers on the fork sits one block below activation looking
+ * perfectly synced. "Synced" is not the thing worth asserting there; which chain
+ * the node is on is.
+ *
+ * `knots-blake2b` gained a `sync-progress` check of its own when it adopted the
+ * official action set in 1.0.0:31, so requiring it here would now work. It is
+ * deliberately not required: `chain` already fails while the node is below the
+ * activation height, and a second check that goes amber through the whole of IBD
+ * would only make the dependency look unsatisfied for longer.
+ */
+type BackendHealthChecks = readonly string[]
+
+/**
+ * Written out rather than imported, unlike the endpoints below: a health check
+ * id is not exported by the packages that declare it, so this is the one thing
+ * here that a rename upstream would break silently rather than at compile time.
+ */
+const officialHealthChecks: BackendHealthChecks = ['bitcoind', 'sync-progress']
+const blake2bHealthChecks: BackendHealthChecks = ['node', 'chain']
+
+/**
+ * The official package and its two mainnet forks share these, because the forks
+ * change only their host-side `preferredExternalPort` values. Imported rather
+ * than written out, so a change upstream reaches us as a type error.
+ */
+const officialEndpoints: Endpoints = {
+  rpcHostId: btcRpcHostId,
+  rpcPort: btcRpcPort,
+}
+
+/**
+ * The bitcoind flavors this package can run against.
+ *
+ * Each is declared as an optional dependency in `dependencies.ts`, and exactly
+ * one is enabled, chosen by the user. The SDK evaluates each `enabled` at
+ * runtime, so a conditional requirement is a supported shape rather than a
+ * trick.
+ */
+export const backends = {
+  bitcoind: {
+    // Named for Knots rather than Core, which is a deliberate departure from the
+    // packaging guide's "call a multi-flavor dependency Bitcoin". Both flavors
+    // share the `bitcoind` id, so this one entry is the only way to reach either,
+    // and nearly everyone running this stack runs Knots.
+    title: 'Bitcoin Knots',
+    endpoints: officialEndpoints,
+    healthChecks: officialHealthChecks,
+  },
+  // `knots-rdts` was here and is not any more. RDTS no longer has a chain of
+  // its own: Knots rc4 removed the versionbits deployment and activates those
+  // rules at the BLAKE2b fork height instead, so the RDTS variant and the
+  // BLAKE2b one stopped being two things to choose between. The package still
+  // exists; this package just has no reason to offer it.
+  // The id stays `knots-prerdts`; only its title changed. That package renamed
+  // itself to SHA256 without touching its id or version flavor, both of which
+  // are identity the registry indexes by.
+  'knots-prerdts': {
+    title: 'Bitcoin Knots (SHA256) Companion',
+    endpoints: officialEndpoints,
+    healthChecks: officialHealthChecks,
+  },
+  'knots-blake2b': {
+    title: 'Bitcoin Knots (BLAKE2b) Companion',
+    endpoints: {
+      rpcHostId: b2bRpcHostId,
+      rpcPort: b2bRpcPort,
+    },
+    healthChecks: blake2bHealthChecks,
+  },
+} as const
+
+export type BackendId = keyof typeof backends
+export const backendIds = Object.keys(backends) as BackendId[]
+export const defaultBackend: BackendId = 'bitcoind'
+
+/**
+ * The minimum version of each backend this package will accept.
+ *
+ * `knots-blake2b` has its own numbering and is held at its current release.
+ */
+export const versionRange: Record<BackendId, string> = {
+  // Upstream's range, taken as is. Each line is held at the revision that ships
+  // btc-rpc-proxy v0.8.1 (28.4:29, 29.4:16, 30.3:16, 31.1:16). That proxy fixes
+  // two stalls, neither of which heals on its own: a pruned block whose coinbase
+  // commits to witnesses it never carried was refused from every peer, so the
+  // block could never be fetched, and the RPC cookie was read once, so from the
+  // node's next restart every caller got 401 until the proxy restarted. The
+  // first is exactly the fetch a pruned node makes for old blocks. The earlier
+  // floors (28.4:17, 29.4:4, ...) were the bridge-resolvable RPC host that
+  // `bitcoindRpcBridge` needs, which these all include.
+  //
+  // The last term is Start9-Community's Bitcoin Knots pre-RDTS package, which
+  // ships under the `bitcoind` id as `#knotsprerdts:29.3:N`. Its `satisfies`
+  // list stops at 29.4:15, below the floors above, so the term names its flavor
+  // directly. The `knots-prerdts` companion below is a different package with
+  // an id of its own, and this term does not reach it.
+  //
+  // Upstream's 29.3:29, which is only safe because this release declares StartOS
+  // 0.4.0.2 (`osVersion` in the manifest). 29.3:29 was published twice under the
+  // same number: first as an SDK 2.0.9 build still on btc-rpc-proxy v0.8.0
+  // (2026-09-25), then, from 2026-10-07, as an SDK 3.0.3 build on v0.8.1 that
+  // requires StartOS 0.4.0.2. On 0.4.0.1 the newest installable build is 29.3:28,
+  // so this floor stranded users there, which is what 3.3.1:40 did. 3.3.1:41 is
+  // held at :28 and stays the newest release on 0.4.0.1; the registry hides this
+  // one from those servers. A node that installed the first :29 build still has
+  // v0.8.0 and passes, as the two builds cannot be told apart. Start9's own
+  // Bitcoin Core and Knots floor builds (28.4:29, 29.4:16, ...) are SDK 2.0.9 with
+  // v0.8.1, so those floors never had this problem.
+  //
+  // The final term is Retropex's BLAKE2b Knots (Retropex/knots-startos), the
+  // package most people run on the BLAKE2b chain. It took the official
+  // `bitcoind` id, and its versions are flavored `#knots:29.4.2:N`, so the
+  // unflavored terms above never match it. Until 2026-09-04 it was accepted
+  // through its `satisfies` list; commit 20ab287 ("no longer satisfy core")
+  // removed that list, and every release since fails this range unless it is
+  // named here. The floor is the current release, 29.4.2:4 (tag
+  // v29.4.2.knots20260508-1). Checked with the SDK's comparator:
+  //   #knots:29.4.2:4 vs this range => true
+  //   #knots:29.4.2:3 vs this range => false
+  //   #knots:29.4:8   vs this range => false (Start9's old SHA256 Knots; its
+  //                                    satisfies list, 29.4:13 and 28.4:26, is
+  //                                    below the floors above)
+  //
+  // It does not carry the proxy fixes the other floors require. 29.4.2:4 ships
+  // the stock ghcr.io/start9labs/btc-rpc-proxy:v0.8.0, and that package runs the
+  // proxy only when pruning. An archival Retropex node works: Cesspool talks to
+  // bitcoind directly. A pruned one hits the old proxy faults: the cookie read
+  // once (401 from the node's next restart until the proxy restarts), old blocks
+  // with an unbacked witness commitment refused by every peer, and, because no
+  // upstream proxy release parses a 164-byte header, every verbose call on a
+  // BLAKE2b block. It is accepted anyway: refusing it does not help archival
+  // users, and pruned users have no fixed Retropex build to move to.
+  bitcoind:
+    '(>=28.4:29 && <29) || (>=29.4:16 && <30) || (>=30.3:16 && <31) || >=31.1:16 || >=#knotsprerdts:29.3:29 || >=#knots:29.4.2:4',
+  // The companions' floors are the first revisions carrying the same two proxy
+  // fixes as the bitcoind floor above: knots-prerdts #knotsprerdts:29.3:29 and
+  // knots-blake2b 1.0.0:32.
+  //
+  // Flavored, and it has to be. That package's versions are `#knotsprerdts:29.3:N`,
+  // and the unflavored `>=29.3:25` this used to be never matched them at all: it
+  // matched the `29.4:13` on that package's own `satisfies` list, which every
+  // revision carries, so it gated nothing. Checked with the SDK's comparator:
+  //   #knotsprerdts:29.3:28 vs >=#knotsprerdts:29.3:29 => false
+  //   #knotsprerdts:29.3:29 vs >=#knotsprerdts:29.3:29 => true
+  //   29.4:13               vs >=#knotsprerdts:29.3:29 => false
+  'knots-prerdts': '>=#knotsprerdts:29.3:29',
+  'knots-blake2b': '>=1.0.0:32',
+}
