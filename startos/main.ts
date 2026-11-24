@@ -3,7 +3,7 @@ import { FileHelper } from '@start9labs/start-sdk'
 import { manifest as bitcoinManifest } from 'bitcoin-core-startos/startos/manifest'
 import { manifest as clnManifest } from 'cln-startos/startos/manifest'
 import { manifest as lndManifest } from 'lnd-startos/startos/manifest'
-import { bounded, unanswered } from './boundedCheck'
+import { bounded, unanswered } from './utils'
 import { i18n } from './i18n'
 import { sdk } from './sdk'
 import {
