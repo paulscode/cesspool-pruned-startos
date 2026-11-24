@@ -3,6 +3,7 @@ import { FileHelper } from '@start9labs/start-sdk'
 import { manifest as bitcoinManifest } from 'bitcoin-core-startos/startos/manifest'
 import { manifest as clnManifest } from 'cln-startos/startos/manifest'
 import { manifest as lndManifest } from 'lnd-startos/startos/manifest'
+import { bounded, unanswered } from './boundedCheck'
 import { i18n } from './i18n'
 import { sdk } from './sdk'
 import {
@@ -195,7 +196,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
       },
       ready: {
         display: i18n('Grading'),
-        fn: async () => {
+        fn: bounded(async () => {
           // No address means the chosen node is not installed, or has not
           // bound its RPC port yet. The updater is waiting on a variable it
           // was never given, and says so in those terms; this says it in the
@@ -234,7 +235,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
               // (the first blocks are being graded).
               return { result: 'starting', message }
           }
-        },
+        }, unanswered),
       },
       requires: [],
     })
@@ -258,11 +259,14 @@ export const main = sdk.setupMain(async ({ effects }) => {
       },
       ready: {
         display: i18n('Web Interface'),
-        fn: () =>
-          sdk.healthCheck.checkPortListening(effects, uiPort, {
-            successMessage: i18n('The web interface is ready'),
-            errorMessage: i18n('The web interface is not ready'),
-          }),
+        fn: bounded(
+          () =>
+            sdk.healthCheck.checkPortListening(effects, uiPort, {
+              successMessage: i18n('The web interface is ready'),
+              errorMessage: i18n('The web interface is not ready'),
+            }),
+          unanswered,
+        ),
       },
       // Not gated on the updater: until the first build exists the web server
       // shows a page that says what the updater is waiting for, which is more

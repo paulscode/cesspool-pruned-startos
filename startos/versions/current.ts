@@ -1,15 +1,13 @@
 import { IMPOSSIBLE, VersionInfo } from '@start9labs/start-sdk'
 
-const notes = `The first release of Cesspool Pruned: cesspool.lol on your own server, from your own node.
+const notes = `Stopping, updating and restarting Cesspool Pruned can no longer be held up by a status check that never finishes.
 
-It grades every block for spam with the policy code of Bitcoin Knots and Plumb, names the pool that mined each one, and serves the result as a site. It works with a pruned node and on either chain, SHA256 or BLAKE2b, and finds out which by asking the node.
+A check still unanswered after a minute now says so, and no longer keeps the service from stopping. The same problem made Bitcoin Knots (BLAKE2b) Companion updates hang at "Installing 80%" before its 29.5.0:1.
 
-It starts at the newest blocks and fills in older ones behind them. Beside a pruned node, history starts at the oldest block the node kept, unless you choose Electrs Pruned or Fulcrum Pruned under Select Indexer, which lets older blocks be rebuilt, slowly.
-
-Storage Limit sets how much disk the graded blocks may take, 50 GB unless you change it. A block takes about 0.6 MB on the BLAKE2b chain and about 8 MB on the SHA256 chain.`
+Nothing you have set changes, and nothing is graded again.`
 
 export const current = VersionInfo.of({
-  version: '0.1.0:0',
+  version: '0.1.0:1',
   releaseNotes: {
     en_US: notes,
     es_ES: notes,
@@ -18,6 +16,7 @@ export const current = VersionInfo.of({
     fr_FR: notes,
   },
   migrations: {
+    // Nothing to migrate: only how the health checks are run changed.
     up: async ({ effects }) => {},
     down: IMPOSSIBLE,
   },
